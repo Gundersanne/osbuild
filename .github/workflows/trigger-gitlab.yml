@@ -36,7 +36,12 @@ jobs:
 
       - name: Checkout branch
         run: |
-          PR=$(echo '${{ steps.fetch_pulls.outputs.data }}' | jq -rc '.[] | select(.head.sha | contains("${{ github.event.workflow_run.head_sha }}")) | select(.state | contains("open"))' | jq -r .number)
+          PR_DATA=$(mktemp)
+          cat > "$PR_DATA" <<EOF
+          ${{ steps.fetch_pulls.outputs.data }}
+          EOF
+
+          PR=$(jq -rc '.[] | select(.head.sha | contains("${{ github.event.workflow_run.head_sha }}")) | select(.state | contains("open"))' "$PR_DATA" | jq -r .number)
           if [ ! -z "$PR" ]; then
             git checkout -b PR-$PR
           else
