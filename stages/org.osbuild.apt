@@ -1,0 +1,148 @@
+#!/usr/bin/python3
+"""
+Install DEB packages using apt
+
+"""
+
+# import apt
+# import apt_pkg
+import os
+import pathlib
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import urllib.parse
+
+from osbuild import api
+from osbuild.util.mnt import mount
+
+
+SCHEMA_2 = """
+"options": {
+  "type": "object",
+  "additionalProperties": false
+},
+"inputs": {
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["packages"],
+  "properties": {
+    "packages": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  }
+}
+"""
+
+def parse_input(inputs):
+    packages = inputs["packages"]
+    path = packages["path"]
+    data = packages["data"]
+    files = data["files"]
+    return path, files
+
+def deb_name(tree, pkgpath, deb):
+    res = subprocess.run([
+        "dpkg-deb",
+        "--field",
+        deb,
+        "Package",
+    ], cwd=pkgpath, check=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, encoding="utf8")
+    return res.stdout.strip()
+
+def deb_version(tree, pkgpath, deb):
+    res = subprocess.run([
+        "dpkg-deb",
+        "--field",
+        deb,
+        "Version",
+    ], cwd=pkgpath, check=True, stdout=subprocess.PIPE, encoding="utf8")
+    return res.stdout.strip()
+
+def deb_architecture(tree, pkgpath, deb):
+    res = subprocess.run([
+        "dpkg-deb",
+        "--field",
+        deb,
+        "Architecture",
+    ], cwd=pkgpath, check=True, stdout=subprocess.PIPE, encoding="utf8")
+    return res.stdout.strip()
+
+def main(tree, inputs, options):
+    pkgpath, packages = parse_input(inputs)
+
+    pkgnames = {}
+    for p in packages:
+        pkgnames[p] = deb_name(tree, pkgpath, p)
+
+    with tempfile.TemporaryDirectory(dir=tree) as tmpdir2:
+        # TODO why does a temporaryDirectory not work? ;_;
+        tmpdir=f"{tree}/blep"
+        subprocess.run(["mkdir", "-p", tmpdir])
+        # copy all debs into the target
+        # target $pkgname_$version(urlencoded)_architecture.deb
+        for p in packages:
+            name = re.sub(r'%[0-9A-Z]{2}', lambda m: m.group(0).lower(), urllib.parse.quote(deb_name(tree, pkgpath, p)))
+            version = re.sub(r'%[0-9A-Z]{2}', lambda m: m.group(0).lower(), urllib.parse.quote(deb_version(tree, pkgpath, p)))
+            arch = re.sub(r'%[0-9A-Z]{2}', lambda m: m.group(0).lower(), urllib.parse.quote(deb_architecture(tree, pkgpath, p)))
+            shutil.copyfile(f"{pkgpath}/{p}", f"{tmpdir}/{name}_{version}_{arch}.deb")
+
+
+        # TODO hack
+        subprocess.run(["apt-ftparchive packages . > Packages"], shell=True, check=True, cwd=tmpdir)
+        subprocess.run(["gzip -9c Packages > Packages.gz"], shell=True, check=True, cwd=tmpdir)
+        subprocess.run(["apt-ftparchive release . > Release"], shell=True, check=True, cwd=tmpdir)
+
+        # setup sources
+        with open(f"{tree}/etc/apt/sources.list", mode="w") as f:
+            f.write(f"deb [allow-insecure=yes trusted=yes allow-releaseinfo-change=yes] file:{tmpdir[len(tree):]} ./\n")
+
+        subprocess.run([f"chroot {tree} apt update"], shell=True, check=True)
+        subprocess.run([f"chroot {tree} apt search usrmerge"], shell=True, check=True)
+        # TODO hack ;_;
+        subprocess.run([f"chroot {tree} apt install usrmerge"], shell=True, check=True)
+        for p in pkgnames:
+            subprocess.run([f"chroot {tree} apt install -y {pkgnames[p]}"], shell=True, check=True)
+
+        # with open(f"{tree}/etc/apt/sources.list", mode="w") as f:
+        #     f.write(f"deb [allow-insecure=yes trusted=yes allow-releaseinfo-change=yes] file:{tmpdir} ./\n")
+        # try:
+        #     # setup apt
+        #     apt_pkg.config["Dir"] = tree
+        #     apt.apt_pkg.config.set("dpkg::chroot-directory", tree)
+        #     apt_pkg.init_config()
+        #     cache = apt.Cache(rootdir=tree)
+        #     # subprocess.run([f"chroot {tree} apt update"], shell=True, check=True)
+        #     print('KEYS', cache.keys())
+        #     try:
+        #         cache.update(fetch_progress=apt.progress.text.AcquireProgress())
+        #     except:
+        #         print('failed update')
+        #     print('KEYS POST UPDATE', cache.keys())
+        #     # commit once
+        #     cache.commit()
+        #     print('KEYS POST commit', cache.keys())
+        #     # cache.update()
+        # except:
+        #     print('meh')
+
+        # try:
+        #     for p in pkgnames:
+        #         print('marking', pkgnames[p])
+        #         cache[pkgnames[p]].mark_install()
+        #     cache.fetch_archives()
+        #     print('MARKED')
+        #     cache.commit(
+        #         fetch_progress = apt.progress.text.AcquireProgress(),
+        #         install_progress=apt.progress.base.InstallProgress())
+        #     print('COMMITTED')
+        # except Exception as e:
+        #     print(e)
+
+if __name__ == '__main__':
+    args = api.arguments()
+    r = main(args["tree"], args["inputs"], args["options"])
+    sys.exit(r)

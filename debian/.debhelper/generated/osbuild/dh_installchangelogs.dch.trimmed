@@ -1,0 +1,5 @@
+osbuild (0-1) unstable; urgency=medium
+
+  * Initial release (Closes: #nnnn)  <nnnn is the bug number of your ITP>
+
+ -- Sanne Raymaekers <sanne.raymaekers@gmail.com>  Sun, 18 Jun 2023 15:42:35 +0200

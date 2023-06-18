@@ -1,0 +1,14 @@
+Package: python3-osbuild
+Source: osbuild
+Version: 0-1
+Architecture: all
+Maintainer: Sanne Raymakers <sanne.raymaekers@gmail.com>
+Installed-Size: 394
+Depends: python3-jsonschema, python3:any
+Section: unknown
+Priority: optional
+Homepage: https://osbuild.org
+Description: <insert up to 60 chars description> (Python 3)
+ <insert long description, indented with spaces>
+ .
+ This package installs the library for Python 3.

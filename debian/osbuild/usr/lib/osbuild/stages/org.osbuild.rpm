@@ -1,0 +1,400 @@
+#!/usr/bin/python3
+"""
+Verify, and install RPM packages
+
+The `exclude.docs` option can be used to tell rpm to not install docs.
+
+`gpgkeys` should be an array of strings containing each GPG key to be used
+to verify the packages. Alternatively, the keys can be imported via files
+located in the tree via `gpgkeys.fromtree`. This is done after the packages
+are installed so it is possible to import keys packaged in rpms.
+
+`packages` is an array of objects representing RPMs. Each RPM is identified by
+its checksums. Specifically, the content hash of the rpm, not the checksums
+found in the rpm header. The `check_gpg` property indicates that the RPM's
+must be signed by one of the given GPG keys, and that the transaction should
+fail otherwise.
+
+This stage will fail if any of the packages can't be found, or if any
+RPM fails signature verification.
+
+Uses the following binaries from the host:
+    * `rpmkeys` to import keys and to verify signatures for each package
+    * `sh`, `mkdir`, `mount`, `chmod` to prepare the target tree for `rpm`
+    * `rpm` to install packages into the target tree
+
+This stage will return the following metadata via the osbuild API:
+  packages: a list of objects representing the installed packages,
+            with information about:
+              name, version, release,
+            and optionally:
+              epoch, arch, sigmd5, sigpgp, siggpg
+"""
+
+
+import contextlib
+import json
+import os
+import pathlib
+import subprocess
+import sys
+import tempfile
+from operator import itemgetter
+
+from osbuild import api
+from osbuild.util.mnt import mount
+
+SCHEMA = """
+"additionalProperties": false,
+"properties": {
+   "dbpath": {
+     "desription": "Use the given path as RPM database",
+     "type": "string"
+  },
+  "disable_dracut": {
+    "description": "Prevent dracut from running",
+    "type": "boolean"
+  },
+  "exclude": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "docs": {
+        "type": "boolean",
+        "description": "Do not install documentation.",
+        "default": false
+      }
+    }
+  },
+  "gpgkeys": {
+    "description": "Array of GPG key contents to import",
+    "type": "array",
+    "items": { "type": "string" }
+  },
+  "gpgkeys.fromtree": {
+    "description": "Array of files in the tree with GPG keys to import",
+    "type": "array",
+    "items": { "type": "string" }
+  },
+  "packages": {
+    "description": "Array of RPM content hashes",
+    "type": "array",
+    "items": {
+      "oneOf": [
+        {
+          "type": "string",
+          "description": ".rpm file checksum, prefixed with 'md5:', 'sha1:', 'sha256:', 'sha384:', or 'sha512:', indicating the algorithm used."
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["checksum"],
+          "properties": {
+            "checksum": {
+              "type": "string",
+              "description": ".rpm file checksum, prefixed with 'md5:', 'sha1:', 'sha256:', 'sha384:', or 'sha512:', indicating the algorithm used."
+            },
+            "check_gpg": {
+              "type": "boolean",
+              "description": "Whether the GPG signatures of the RPM should be verified.",
+              "default": false
+            }
+          }
+        }
+      ]
+    }
+  },
+  "ostree_booted": {
+    "type": "boolean",
+    "description": "Create the '/run/ostree-booted' marker"
+  }
+}
+"""
+
+
+SCHEMA_2 = """
+"options": {
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "dbpath": {
+      "desription": "Use the given path as RPM database",
+      "type": "string"
+    },
+    "gpgkeys": {
+      "description": "Array of GPG key contents to import",
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "gpgkeys.fromtree": {
+      "description": "Array of files in the tree with GPG keys to import",
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "disable_dracut": {
+      "description": "Prevent dracut from running",
+      "type": "boolean"
+    },
+    "exclude": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "docs": {
+          "type": "boolean",
+          "description": "Do not install documentation.",
+          "default": false
+        }
+      }
+    },
+    "install_langs": {
+       "description": "Only install certain locales (sets `_install_langs` RPM macro)",
+       "type": "array",
+       "minItems": 1,
+       "uniqueItems": true,
+       "items": {
+        "type": "string"
+      }
+    },
+    "ostree_booted": {
+      "type": "boolean",
+      "description": "Create the '/run/ostree-booted' marker"
+    }
+  }
+},
+"inputs": {
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["packages"],
+  "properties": {
+    "packages": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  }
+}
+"""
+
+
+# File to mark a system as ostree booted. Also used by certain packages
+# like e.g. authselect, to adjust its behavior during installation.
+# Controlled via the `ostree_booted` option.
+OSTREE_BOOTED_MARKER = "run/ostree-booted"
+
+
+def generate_package_metadata(tree, rpm_args):
+    query = r"""\{
+    "name": "%{NAME}",
+    "version": "%{VERSION}",
+    "release": "%{RELEASE}",
+    "epoch": %|EPOCH?{"%{EPOCH}"}:{null}|,
+    "arch": %|ARCH?{"%{ARCH}"}:{null}|,
+    "sigmd5": %|SIGMD5?{"%{SIGMD5}"}:{null}|,
+    "sigpgp": %|SIGPGP?{"%{SIGPGP}"}:{null}|,
+    "siggpg": %|SIGGPG?{"%{SIGGPG}"}:{null}|
+    \},
+    """
+
+    cmd = [
+        "rpm",
+        *rpm_args,
+        "-qa",
+        "--root", tree,
+        "--qf=" + query
+    ]
+
+    res = subprocess.run(cmd, stdout=subprocess.PIPE,
+                         check=True, encoding="utf8")
+
+    raw = res.stdout.strip()
+    jsdata = '{"packages": [' + raw[:-1] + "]}"
+    data = json.loads(jsdata)
+
+    data["packages"] = sorted(data["packages"],
+                              key=itemgetter("name"))
+
+    return data
+
+
+def disable_dracut(tree):
+    kernel_install_d = f"{tree}/etc/kernel/install.d"
+    files = []
+
+    os.makedirs(kernel_install_d, exist_ok=True)
+
+    for path in ["50-dracut.install", "51-dracut-rescue.install"]:
+        target = os.path.join(kernel_install_d, path)
+        os.symlink("/dev/null", target)
+        files.append(target)
+
+    return files
+
+
+def enable_dracut(masked_files):
+    for path in masked_files:
+        os.unlink(path)
+
+
+def remove_unowned_etc_kernel(tree, rpm_args):
+    # if installed, /etc/kernel is owned by systemd-udev; but
+    # in case the directory is un-owned, remove it again
+
+    res = subprocess.run(["rpm",
+                          *rpm_args,
+                          "--root", tree,
+                          "-qf", "/etc/kernel"],
+                         stdout=subprocess.PIPE,
+                         check=False)
+    owner = res.stdout.strip()
+
+    if res == 0 and owner:
+        print(f"/etc/kernel is owned by {owner}")
+        return
+
+    with contextlib.suppress(OSError):
+        os.rmdir("etc/kernel/install.d")
+        os.rmdir("etc/kernel")
+
+
+def parse_input(inputs):
+    packages = inputs["packages"]
+    path = packages["path"]
+    data = packages["data"]
+    files = data["files"]
+    return path, files
+
+
+def create_machine_id_if_needed(tree):
+    """Create a machine-id with a fake machine id if it does not exist"""
+    path = f"{tree}/etc/machine-id"
+    if os.path.exists(path):
+        return False
+
+    os.makedirs(f"{tree}/etc", exist_ok=True)
+    with open(path, "w", encoding="utf8") as f:
+        # create a fake machine ID to improve reproducibility
+        f.write("ffffffffffffffffffffffffffffffff\n")
+        os.fchmod(f.fileno(), 0o400)
+
+    return True
+
+
+# pylint: disable=too-many-branches
+def main(tree, inputs, options):
+    pkgpath, packages = parse_input(inputs)
+
+    dbpath = options.get("dbpath")
+
+    rpm_args = []
+    if dbpath:
+        print(f"dbpath set to '{dbpath}'")
+        rpm_args += ["--dbpath", dbpath]
+
+    for key in options.get("gpgkeys", []):
+        with tempfile.NamedTemporaryFile(prefix="gpgkey.", mode="w") as keyfile:
+            keyfile.write(key)
+            keyfile.flush()
+            subprocess.run([
+                "rpmkeys",
+                *rpm_args,
+                "--root", tree,
+                "--import", keyfile.name
+            ], check=True)
+        print("imported gpg key")
+
+    for filename, data in packages.items():
+        if data.get("rpm.check_gpg"):
+            subprocess.run([
+                "rpmkeys",
+                *rpm_args,
+                "--root", tree,
+                "--checksig",
+                filename
+            ], cwd=pkgpath, stdout=subprocess.DEVNULL, check=True)
+
+    for source in ("/dev", "/sys", "/proc"):
+        target = os.path.join(tree, source.lstrip("/"))
+        os.makedirs(target, exist_ok=True)
+        mount(source, target, ro=False)
+
+    machine_id_created = create_machine_id_if_needed(tree)
+
+    ostree_booted = None
+    if options.get("ostree_booted", False):
+        os.makedirs(f"{tree}/run", exist_ok=True)
+        ostree_booted = f"{tree}/{OSTREE_BOOTED_MARKER}"
+        with open(ostree_booted, "w", encoding="utf8") as f:
+            f.write("")
+
+    extra_args = []
+    if options.get("exclude", {}).get("docs"):
+        extra_args += ["--excludedocs"]
+
+    # prevent dracut from running, if enabled
+    no_dracut = options.get("disable_dracut", False)
+    if no_dracut:
+        masked_files = disable_dracut(tree)
+
+    langs = options.get("install_langs")
+    if langs:
+        macro = "%_install_langs " + ":".join(langs)
+        print(f"using '{macro}'")
+        extra_args += [
+            "--define", macro,
+        ]
+
+    with tempfile.NamedTemporaryFile(prefix="manifest.", mode='w') as manifest:
+        manifest.writelines(c+'\n' for c in packages)
+        manifest.flush()
+        subprocess.run([
+            "rpm",
+            "--verbose",
+            *rpm_args,
+            "--root", tree,
+            *extra_args,
+            # All digests and signatures of the rpms has been verified,
+            # default to not verifying package or header signatures when
+            # reading.
+            "--nosignature",
+            "--install", manifest.name
+        ], cwd=pkgpath, check=True)
+
+    for key in options.get("gpgkeys.fromtree", []):
+        path = os.path.join(tree, key.lstrip("/"))
+        subprocess.run([
+            "rpmkeys",
+            *rpm_args,
+            "--root", tree,
+            "--import", path
+        ], check=True)
+        print(f"imported gpg keys from '{key}'")
+
+    # re-enabled dracut
+    if no_dracut:
+        enable_dracut(masked_files)
+        remove_unowned_etc_kernel(tree, rpm_args)
+
+    # remove temporary machine ID if it was created by us
+    if machine_id_created:
+        print("deleting the fake machine id")
+        machine_id_file = pathlib.Path(f"{tree}/etc/machine-id")
+        machine_id_file.unlink()
+        machine_id_file.touch()
+
+    if ostree_booted:
+        os.unlink(ostree_booted)
+
+    # remove random seed from the tree if exists
+    with contextlib.suppress(FileNotFoundError):
+        os.unlink(f"{tree}/var/lib/systemd/random-seed")
+
+    # generate the metadata
+    md = generate_package_metadata(tree, rpm_args)
+    api.metadata(md)
+
+    return 0
+
+
+if __name__ == '__main__':
+    args = api.arguments()
+    r = main(args["tree"], args["inputs"], args["options"])
+    sys.exit(r)

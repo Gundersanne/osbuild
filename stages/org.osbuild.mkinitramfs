@@ -1,0 +1,29 @@
+#!/usr/bin/python3
+"""
+Install DEB packages
+
+"""
+
+import os
+import pathlib
+import subprocess
+import sys
+import tempfile
+
+from osbuild import api
+from osbuild.util.mnt import mount
+
+SCHEMA_2 = """
+"options": {
+  "type": "object",
+  "additionalProperties": false
+}
+"""
+
+def main(tree, options):
+    subprocess.run(["mkinitramfs", "-r", tree, "-d", f"{tree}/etc/initramfs-tools/initramfs.conf", "-o", f"{tree}/boot/initrd.img-6.1.0-9-amd64"])
+
+if __name__ == '__main__':
+    args = api.arguments()
+    r = main(args["tree"], args["options"])
+    sys.exit(r)

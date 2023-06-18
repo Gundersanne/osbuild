@@ -1,0 +1,303 @@
+#!/usr/bin/python3
+"""
+Install DEB packages
+
+"""
+
+# import apt
+# import apt_pkg
+import os
+import pathlib
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import urllib.parse
+
+from osbuild import api
+from osbuild.util.mnt import mount
+
+
+# "dbpath": {
+#   "desription": "Use the given path as RPM database",
+#   "type": "string"
+# },
+# "gpgkeys": {
+#   "description": "Array of GPG key contents to import",
+#   "type": "array",
+#   "items": { "type": "string" }
+# },
+# "gpgkeys.fromtree": {
+#   "description": "Array of files in the tree with GPG keys to import",
+#   "type": "array",
+#   "items": { "type": "string" }
+# },
+# "disable_dracut": {
+#   "description": "Prevent dracut from running",
+#   "type": "boolean"
+# },
+# "exclude": {
+#   "type": "object",
+#   "additionalProperties": false,
+#   "properties": {
+#     "docs": {
+#       "type": "boolean",
+#       "description": "Do not install documentation.",
+#       "default": false
+#     }
+#   }
+# },
+# "install_langs": {
+#    "description": "Only install certain locales (sets `_install_langs` RPM macro)",
+#    "type": "array",
+#    "minItems": 1,
+#    "uniqueItems": true,
+#    "items": {
+#     "type": "string"
+#   }
+# },
+
+
+SCHEMA_2 = """
+"options": {
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "configure-in-target": {
+      "type": "boolean"
+    }
+  }
+},
+"inputs": {
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["packages"],
+  "properties": {
+    "packages": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  }
+}
+"""
+
+def parse_input(inputs):
+    packages = inputs["packages"]
+    path = packages["path"]
+    data = packages["data"]
+    files = data["files"]
+    return path, files
+
+def unpack_deb(tree, pkgpath, deb):
+    tries = 0
+    while tries < 4:
+        try:
+            subprocess.run([
+                "dpkg",
+                "--root", tree,
+                "--no-debsig",
+                "--force-all",
+                # "--skip-same-version",
+                "--unpack", deb,
+            ], cwd=pkgpath, check=True)
+            return True
+        except subprocess.CalledProcessError:
+            tries += 1
+    return False
+
+def configure_all(tree, pkgpath):
+    subprocess.run([
+        "dpkg",
+        "--root", tree,
+        "--no-debsig",
+        "--force-all",
+        "--configure",
+        "--pending",
+    ], cwd=pkgpath, check=False)
+
+def install_deb(tree, pkgpath, deb):
+    # TODO check=False since dpkg throws a ton of errors
+    subprocess.run([
+        "dpkg",
+        "--root", tree,
+        "--no-debsig",
+        "--force-all",
+        "-i", deb,
+    ], cwd=pkgpath, check=False)
+
+def record_available(tree, pkgpath, deb):
+    subprocess.run([
+        f"dpkg --root {tree} --record-avail {deb}"
+    ], cwd=pkgpath, stderr=subprocess.DEVNULL, check=True, shell=True)
+
+def predep_pkg(tree, pkgpath):
+    res = subprocess.run([
+        "dpkg",
+        "--root", tree,
+        "--predep-package"
+    ], cwd=pkgpath, check=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, encoding="utf8")
+    return res.returncode, res.stdout
+
+def deb_name(tree, pkgpath, deb):
+    res = subprocess.run([
+        "dpkg-deb",
+        "--field",
+        deb,
+        "Package",
+    ], cwd=pkgpath, check=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, encoding="utf8")
+    return res.stdout.strip()
+
+def deb_deps(tree, pkgpath, deb):
+    res = subprocess.run([
+        "dpkg-deb",
+        "--field",
+        deb,
+        "Depends",
+    ], cwd=pkgpath, check=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, encoding="utf8")
+    deps = []
+    for d in res.stdout.split(","):
+        # TODO handle deps with '|' (=or)
+        sd = d.strip().split(" ")[0].strip()
+        deps.append(sd.split(":")[0].strip())
+    return deps
+
+def deb_version(tree, pkgpath, deb):
+    res = subprocess.run([
+        "dpkg-deb",
+        "--field",
+        deb,
+        "Version",
+    ], cwd=pkgpath, check=True, stdout=subprocess.PIPE, encoding="utf8")
+    return res.stdout.strip()
+
+def deb_architecture(tree, pkgpath, deb):
+    res = subprocess.run([
+        "dpkg-deb",
+        "--field",
+        deb,
+        "Architecture",
+    ], cwd=pkgpath, check=True, stdout=subprocess.PIPE, encoding="utf8")
+    return res.stdout.strip()
+
+def main(tree, inputs, options):
+    pkgpath, packages = parse_input(inputs)
+
+    # # todo separate instdir and admindir
+    subprocess.run(["mkdir", "-p", f"{tree}/var/lib/dpkg/info"])
+
+
+    pkgshas = {}
+    pkgnames = {}
+    pkgdeps = {}
+    for p in packages:
+        name = deb_name(tree, pkgpath, p)
+        pkgshas[name] = p
+        pkgnames[p] = name
+        pkgdeps[name] = deb_deps(tree, pkgpath, p)
+    # print(pkgshas)
+    # print(pkgnames)
+    for k in pkgdeps:
+        print(k, pkgdeps[k])
+    print(pkgdeps)
+
+    for p in packages:
+        record_available(tree, pkgpath, p)
+        subprocess.run([
+            f"echo \"{pkgnames[p]} install\" | dpkg --root={tree} --set-selections"
+        ], shell=True, stderr=subprocess.DEVNULL)
+
+    # feign install dpkg if /var/lib/dpkg was empty
+    if not os.path.isfile(f"{tree}/var/lib/dpkg/status"):
+        with open(f"{tree}/var/lib/dpkg/status", "w") as f:
+            f.write("Package: dpkg\n")
+            v = deb_version(tree, pkgpath, pkgshas["dpkg"])
+            f.write(f"Version: {v}\n")
+            f.write("Maintainer: unknown\n")
+            f.write("Status: install ok installed\n")
+        pathlib.Path(f"{tree}/var/lib/dpkg/info/dpkg.list").touch(mode=0o644)
+        subprocess.run(["mkdir", "-p", f"{tree}/root"])
+        pathlib.Path(f"{tree}/root/.profile").touch(mode=0o644) # TODO needed?
+        with open(f"{tree}/var/lib/dpkg/cmethopt", "w") as f:
+            f.write("apt apt\n")
+
+    installed = []
+    # returns true if pkg has no deps or if pkg's deps are circular
+    def has_circular_deps(pkg, visited):
+        if pkg in visited:
+            return False
+        visited.append(pkg)
+        for dep in pkgdeps.get(pkg, []):
+            # package has to be in pkgdeps (excludes virtual dependencies)
+            if dep != visited[0] and not has_circular_deps(dep, visited):
+                return False
+        return True
+
+    def debs_without_deps():
+        res = []
+        for pkg in pkgdeps:
+            if has_circular_deps(pkg, []):
+                res.append(pkg)
+        return res
+
+
+    install_failed = []
+    while len(pkgdeps) > 0:
+        # get pkgs without any deps
+        # unpack
+        # configure
+        # delete those
+        installme = debs_without_deps()
+        print('InSTALLME', installme)
+        print('LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLSLSLSLSLS')
+        subprocess.run(["ls", "-lah", "/run"])
+        # sys.exit(1)
+        if len(installme) == 0 and len(pkgdeps) > 0:
+            print('BAD DEPSOLVE')
+            raise RuntimeError("Bad depsolve")
+        for p in installme:
+            if unpack_deb(tree, pkgpath, pkgshas[p]):
+                installed.append(p)
+            else:
+                install_failed.append(p)
+
+        configure_all(tree, pkgpath)
+
+        for p in installme:
+            install_deb(tree, pkgpath, pkgshas[p])
+            try:
+                print('POP', p)
+                pkgdeps.pop(p)
+            except:
+                print('BAD POP')
+                pass
+            # filter out from other pkgs
+            for dep in pkgdeps:
+                pkgdeps[dep] = list(filter(lambda d: d != p, pkgdeps[dep]))
+
+    # # TODO it's all about the fucking order ;_;
+    # # TODO depsolve before install/config ;_;
+    # #while echo 'y' 2>/dev/null ; do : ; done |
+    # TODO only reconfigure works ._.
+    if options.get('configure-in-target', True):
+        for p in installed:
+            subprocess.run([
+                f"chroot {tree} dpkg-reconfigure --force {p}"
+            ], shell=True, check=False)
+        subprocess.run([
+            "chroot",
+            f"{tree}",
+            "dpkg",
+            "--configure",
+            "--pending",
+            "--force-all", # , all or no work ._.
+            # "--force-depends",
+            "--force-confold"
+        ], env={"PATH": "/usr/bin:/bin:/sbin:/usr/sbin"})
+
+
+
+if __name__ == '__main__':
+    args = api.arguments()
+    r = main(args["tree"], args["inputs"], args["options"])
+    sys.exit(r)

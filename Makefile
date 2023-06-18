@@ -290,6 +290,12 @@ rpm: git-diff-check $(RPM_SPECFILE) $(RPM_TARBALL)
 		--define "_topdir $(CURDIR)/rpmbuild" \
 		$(RPM_SPECFILE)
 
+.PHONE: deb
+deb:
+	git archive --prefix=osbuild-$(COMMIT)/ --format=tar.gz HEAD > ../osbuild_0.orig.tar.gz
+	DEB_BUILD_OPTIONS=nocheck dpkg-buildpackage -us -uc
+	rm ../osbuild_0.orig.tar.gz
+
 #
 # Releasing
 #

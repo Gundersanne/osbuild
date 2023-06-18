@@ -1,0 +1,134 @@
+#!/usr/bin/python3
+"""Fetch container image from a registry using skopeo
+
+The image is stored in a directory called `image` under a directory indexed by
+the "container image id", which is the digest of the container configuration
+file (rather than the outer manifest) and is what will be shown in the "podman
+images" output when the image is installed. This digest is stable as opposed to
+the manifest digest which can change during transfer and storage due to e.g.
+recompression.
+
+The local storage format for containers is the `dir` format which supports
+retaining signatures and manifests.
+
+Buildhost commands used: `skopeo`.
+"""
+
+import errno
+import hashlib
+import os
+import subprocess
+import sys
+import tempfile
+
+from osbuild import sources
+from osbuild.util import ctx
+
+SCHEMA = """
+"additionalProperties": false,
+"definitions": {
+  "item": {
+    "description": "The container image to fetch indexed by the container image id",
+    "type": "object",
+    "additionalProperties": false,
+    "patternProperties": {
+      "sha256:[0-9a-f]{64}": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["image"],
+        "properties": {
+          "image": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["name", "digest"],
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "Name of the image (including registry)."
+              },
+              "digest": {
+                "type": "string",
+                "description": "Digest of image in registry.",
+                "pattern": "sha256:[0-9a-f]{64}"
+              },
+              "tls-verify": {
+                "type": "boolean",
+                "description": "Require https (default true)."
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+},
+"properties": {
+  "items": {"$ref": "#/definitions/item"},
+  "digests": {"$ref": "#/definitions/item"}
+},
+"oneOf": [{
+  "required": ["items"]
+}, {
+  "required": ["digests"]
+}]
+"""
+
+
+class SkopeoSource(sources.SourceService):
+
+    content_type = "org.osbuild.containers"
+
+    dir_name = "image"
+
+    def fetch_one(self, checksum, desc):
+        image_id = checksum
+        image = desc["image"]
+        imagename = image["name"]
+        digest = image["digest"]
+        tls_verify = image.get("tls-verify", True)
+
+        with tempfile.TemporaryDirectory(prefix="tmp-download-", dir=self.cache) as tmpdir:
+            archive_dir = os.path.join(tmpdir, "container-archive")
+            os.makedirs(archive_dir)
+            os.chmod(archive_dir, 0o755)
+
+            source = f"docker://{imagename}@{digest}"
+
+            # We use the dir format because it is the most powerful in terms of feature support and is the closest to a
+            # direct serialisation of the registry data.
+            destination = f"dir:{archive_dir}/{self.dir_name}"
+
+            extra_args = []
+            if not tls_verify:
+                extra_args.append("--src-tls-verify=false")
+
+            subprocess.run(["skopeo", "copy"] + extra_args + [source, destination],
+                           encoding="utf-8",
+                           check=True)
+
+            # Verify that the digest supplied downloaded the correct container image id.
+            # The image id is the digest of the config, but skopeo can't currently
+            # get the config id, only the full config, so we checksum it ourselves.
+            res = subprocess.check_output(["skopeo", "inspect", "--raw", "--config", destination])
+            downloaded_id = "sha256:" + hashlib.sha256(res).hexdigest()
+            if downloaded_id != image_id:
+                raise RuntimeError(
+                    f"Downloaded image {imagename}@{digest} has a id of {downloaded_id}, but expected {image_id}")
+
+            # Atomically move download archive into place on successful download
+            with ctx.suppress_oserror(errno.ENOTEMPTY, errno.EEXIST):
+                os.makedirs(os.path.join(self.cache, image_id), exist_ok=True)
+                os.rename(os.path.join(archive_dir, self.dir_name), os.path.join(self.cache, image_id, self.dir_name))
+
+    def exists(self, checksum, _desc):
+        path = os.path.join(self.cache, checksum, self.dir_name)
+        return os.path.exists(path)
+
+
+def main():
+    service = SkopeoSource.from_args(sys.argv[1:])
+    service.main()
+
+
+if __name__ == '__main__':
+    main()
