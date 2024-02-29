@@ -1,0 +1,27 @@
+#!/usr/bin/make -f
+# See debhelper(7) (uncomment to enable)
+# output every command that modifies files on the build system.
+export DH_VERBOSE = 1
+
+export PYBUILD_NAME=osbuild
+
+
+%:
+	dh $@ --with=python3 --buildsystem=pybuild
+
+
+PKGDIR=debian/osbuild/usr/lib/osbuild
+DATADIR=debian/osbuild/usr/share/osbuild
+
+override_dh_install:
+	mkdir -p $(PKGDIR)
+	cp -r stages $(PKGDIR)/stages
+	cp -r assemblers $(PKGDIR)/assemblers
+	cp -r runners $(PKGDIR)/runners
+	cp -r sources $(PKGDIR)/sources
+	cp -r devices $(PKGDIR)/devices
+	cp -r inputs $(PKGDIR)/inputs
+	cp -r mounts $(PKGDIR)/mounts
+
+	mkdir -p $(DATADIR)
+	cp -r schemas $(DATADIR)/schemas
