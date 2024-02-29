@@ -318,12 +318,25 @@ import urllib.parse
 import urllib.request
 from typing import Dict, List, Optional
 
-import dnf
-import hawkey
-import rpm
+try:
+    import dnf
+except ImportError:
+    print("dnf module not found")
+
+try:
+    import rpm
+    import hawkey
+except ImportError:
+    print("rpm module not found")
+
 import yaml
 
 from osbuild.util import containers
+try:
+    import apt
+except ImportError:
+    print("apt module not found")
+
 from osbuild.util.rhsm import Subscriptions
 
 # We need to resolve an image name to a resolved image manifest digest
@@ -520,14 +533,15 @@ class PkgInfo:
         self.url = None
         self.secrets = None
 
-    @classmethod
-    def from_dnf_package(cls, pkg: dnf.package.Package):
-        checksum_type = hawkey.chksum_name(pkg.chksum[0])
-        checksum_hex = pkg.chksum[1].hex()
+    # TODO move this to rpm specific solver?
+    # @classmethod
+    # def from_dnf_package(cls, pkg: dnf.package.Package):
+    #     checksum_type = hawkey.chksum_name(pkg.chksum[0])
+    #     checksum_hex = pkg.chksum[1].hex()
 
-        checksum = f"{checksum_type}:{checksum_hex}"
+    #     checksum = f"{checksum_type}:{checksum_hex}"
 
-        return cls(checksum, pkg.name, pkg.evr, pkg.arch)
+    #     return cls(checksum, pkg.name, pkg.evr, pkg.arch)
 
     @property
     def evra(self):
@@ -607,6 +621,70 @@ LocalFileSigLevel = Optional
             k, v = l.split(":", maxsplit=1)
             return k.strip(), v.strip()
         return dict([parse_line(line) for line in lines if ":" in line])
+
+class AptSolver():
+
+    def __init__(self, cachedir, persistdir):
+        self.cachedir = cachedir
+        self.persistdir = persistdir
+
+    def reset(self, arch, basedir, module_platform_id, ignore_weak_deps):
+        self.setup_cache()
+
+    def setup_cache(self):
+        os.makedirs(self.cachedir, exist_ok=True)
+        os.makedirs(os.path.join(self.cachedir, "etc", "apt"), exist_ok=True)
+        # TODO only if we actually wanna commit
+        # os.makedirs(os.path.join(self.cachedir, "etc", "apt", "apt.conf.d"))
+        # os.makedirs(os.path.join(self.cachedir, "var", "log", "apt"))
+
+    def add_repo(self, desc, _):
+        print("CACHEDIR", self.cachedir)
+        slpath = os.path.join(self.cachedir, "etc", "apt", "sources.list")
+        with open(slpath, "a", encoding="utf-8") as slfile:
+            slfile.write("\n")
+            print(desc)
+            url = desc["baseurl"]
+            distro = desc["distro"]
+            components = desc["components"]
+            archive_type = desc["archive_type"]
+            # TODO turn off trusted
+            slfile.write(f"{archive_type} [trusted=yes] {url} {distro} {components}")
+
+# 36117  cd /tmp/aptcache/
+# 36124  mkdir -p /tmp/aptcache
+# 36125  mkdir -p /tmp/aptcache/var/lib/dpkg
+# 36126  touch /tmp/aptcache/var/lib/dpkg/status
+# 36127  mkdir -p /tmp/aptcache/etc/apt/sources.list.d
+# 36128  touch /tmp/aptcache/etc/apt/sources.list
+# 36129  mkdir -p /tmp/aptcache/etc/apt/preferences.d
+# 36135  mkdir -p /tmp/aptcache/var/cache/apt/archives/partial
+# ln -s /etc/apt/trusted.gpg ./trusted.gpg
+# ln -s /etc/apt/trusted.gpg.d/ ./trusted.gpg.d
+# mkdir -p /tmp/aptcache/var/log/apt/
+# build  to satisfy all deps ?
+#  -> how to get list of all debs?
+# apt-get -c=/home/sanne/workstuff/journal/aptconf.conf download --print-uris perl-base | cut -f1,4 -d' '
+
+    def resolve(self, packages, _):
+        cache = apt.cache.Cache(rootdir=self.cachedir)
+        cache.update()
+        cache.open()
+        with cache.actiongroup():
+            for pkg in packages:
+                cache[pkg].mark_install()
+
+        packages = []
+        for pkg in cache.get_changes():
+            p = PkgInfo(
+                "sha256:" + pkg.candidate.sha256,
+                pkg.name,
+                pkg.candidate.version,
+                pkg.architecture
+            )
+            p.url = urllib.parse.unquote(pkg.candidate.uri)
+            packages.append(p)
+        return packages
 
 
 class DepSolver:
@@ -758,8 +836,12 @@ class DepSolverFactory():
         if solver not in self._solvers:
             if solver == "alpm":
                 klass = PacmanSolver
-            else:
+            elif solver == "apt" and 'apt' in sys.modules:
+                klass = AptSolver
+            elif 'dnf' in sys.modules:
                 klass = DepSolver
+            else:
+                raise RuntimeError("no solver available")
             self._solvers[solver] = klass(self._cachedir, self._persistdir)
         return self._solvers[solver]
 
@@ -1416,7 +1498,7 @@ class ManifestFileV2(ManifestFile):
             self.pipelines.extend(self._process_import(pipeline))
 
     def _process_depsolve(self, stage, pipeline_name):
-        if stage.get("type", "") not in ("org.osbuild.pacman", "org.osbuild.rpm"):
+        if stage.get("type", "") not in ("org.osbuild.pacman", "org.osbuild.rpm", "org.osbuild.dpkg", "org.osbuild.apt"):
             return
         inputs = element_enter(stage, "inputs", {})
         packages = element_enter(inputs, "packages", {})
@@ -1614,7 +1696,9 @@ def main():
     args = parser.parse_args(sys.argv[1:])
 
     defaults = {
-        "arch": rpm.expandMacro("%{_arch}")
+        # TODO rpm-nonspecific?
+        # "arch": rpm.expandMacro("%{_arch}")
+        "arch": "amd64"
     }
 
     # Override variables from the main of imported files
