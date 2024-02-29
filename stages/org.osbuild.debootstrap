@@ -1,0 +1,61 @@
+#!/usr/bin/python3
+"""
+Run debootstrap
+
+"""
+
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+
+from osbuild import api
+
+SCHEMA_2 = """
+"options": {
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["suite"],
+  "properties": {
+    "suite": {
+      "type":"string"
+    }
+  }
+},
+"inputs": {
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["tarball"],
+  "properties": {
+    "tarball": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  }
+}
+"""
+
+def parse_input(inputs):
+    print("INPUTS", inputs)
+    return inputs["tarball"]["path"], list(inputs["tarball"]["data"]["files"].keys())[0]
+
+def main(tree, inputs, options):
+    tarball_dir, tarball = parse_input(inputs)
+    suite = options["suite"]
+    print(tarball_dir, tarball)
+
+    with tempfile.TemporaryDirectory(dir=tree) as tmpdir:
+        tb = os.path.join(tmpdir, "tarball.tar")
+        shutil.copyfile(os.path.join(tarball_dir, tarball), tb)
+        subprocess.run([
+            "debootstrap",
+            f"--unpack-tarball={tb}",
+            suite,
+            tree,
+        ], cwd=tree, check=True)
+
+if __name__ == '__main__':
+    args = api.arguments()
+    r = main(args["tree"], args["inputs"], args["options"])
+    sys.exit(r)
