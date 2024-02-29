@@ -1,0 +1,33 @@
+{
+  "version": "2",
+  "pipelines": [
+    {
+      "name": "build",
+      "runner": "org.osbuild.linux",
+      "stages": [
+        {
+          "type": "org.osbuild.debootstrap",
+          "inputs": {
+            "tarball": {
+              "type": "org.osbuild.files",
+              "origin": "org.osbuild.source",
+              "references": {
+                "sha256:fb41cb7def9dc17e1f4e03f98011d34fbd65320686bfc37df170e898cb8659c8": {}
+              }
+            }
+          },
+          "options": {
+            "suite": "stable"
+          }
+        }
+      ]
+    }
+  ],
+  "sources": {
+    "org.osbuild.curl": {
+      "items": {
+        "sha256:fb41cb7def9dc17e1f4e03f98011d34fbd65320686bfc37df170e898cb8659c8": "http://localhost:8000/ball.tar"
+      }
+    }
+  }
+}

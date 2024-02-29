@@ -1,0 +1,572 @@
+{
+  "version": "2",
+  "pipelines": [
+    {
+      "name": "build",
+      "runner": "org.osbuild.linux",
+      "stages": [
+        {
+          "type": "org.osbuild.dpkg",
+          "inputs": {
+            "packages": {
+              "type": "org.osbuild.files",
+              "origin": "org.osbuild.source",
+              "mpp-depsolve": {
+                "architecture": "x86_64",
+                "module-platform-id": "f34",
+                "solver": "apt",
+                "repos": [
+                  {
+                    "id": "bookworm",
+                    "archive_type": "deb",
+                    "distro": "bookworm",
+                    "components": "main non-free contrib",
+                    "baseurl": "http://deb.debian.org/debian/"
+                  }
+                ],
+                "packages": [
+                  "apt",
+                  "btrfs-progs",
+                  "base-files",
+                  "base-passwd",
+                  "bash",
+                  "bsdutils",
+                  "coreutils",
+                  "util-linux",
+                  "debconf",
+                  "diffutils",
+                  "grep",
+                  "tar",
+                  "findutils",
+                  "libc-bin",
+                  "dash",
+                  "initramfs-tools",
+                  "sed"
+                ]
+              }
+            }
+          },
+          "options": {
+            "configure-in-target": true
+          }
+        },
+        {
+          "type": "org.osbuild.apt",
+          "inputs": {
+            "packages": {
+              "type": "org.osbuild.files",
+              "origin": "org.osbuild.source",
+              "mpp-depsolve": {
+                "architecture": "x86_64",
+                "module-platform-id": "f34",
+                "solver": "apt",
+                "repos": [
+                  {
+                    "id": "bookworm",
+                    "archive_type": "deb",
+                    "distro": "bookworm",
+                    "components": "main non-free contrib",
+                    "baseurl": "http://deb.debian.org/debian/"
+                  }
+                ],
+                "packages": [
+                  "apt",
+                  "btrfs-progs",
+                  "dosfstools",
+                  "e2fsprogs",
+                  "base-files",
+                  "base-passwd",
+                  "bash",
+                  "bsdutils",
+                  "coreutils",
+                  "debconf",
+                  "diffutils",
+                  "fdisk",
+                  "grep",
+                  "gzip",
+                  "qemu",
+                  "systemd",
+                  "tar",
+                  "findutils",
+                  "libc-bin",
+                  "xfsprogs",
+                  "grub2",
+                  "grub-efi",
+                  "dash",
+                  "initramfs-tools",
+                  "sed"
+                ]
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "os",
+      "build": "name:build",
+      "stages": [
+        {
+          "type": "org.osbuild.dpkg",
+          "inputs": {
+            "packages": {
+              "type": "org.osbuild.files",
+              "origin": "org.osbuild.source",
+              "mpp-depsolve": {
+                "architecture": "x86_64",
+                "module-platform-id": "f34",
+                "solver": "apt",
+                "repos": [
+                  {
+                    "id": "bookworm",
+                    "archive_type": "deb",
+                    "distro": "bookworm",
+                    "components": "main non-free contrib",
+                    "baseurl": "http://deb.debian.org/debian/"
+                  }
+                ],
+                "packages": [
+                  "apt",
+                  "btrfs-progs",
+                  "base-files",
+                  "base-passwd",
+                  "bash",
+                  "bsdutils",
+                  "coreutils",
+                  "util-linux",
+                  "debconf",
+                  "diffutils",
+                  "grep",
+                  "tar",
+                  "findutils",
+                  "libc-bin",
+                  "dash",
+                  "initramfs-tools",
+                  "sed"
+                ]
+              }
+            }
+          },
+          "options": {
+            "configure-in-target": true
+          }
+        },
+        {
+          "type": "org.osbuild.apt",
+          "inputs": {
+            "packages": {
+              "type": "org.osbuild.files",
+              "origin": "org.osbuild.source",
+              "mpp-depsolve": {
+                "architecture": "x86_64",
+                "module-platform-id": "f34",
+                "solver": "apt",
+                "repos": [
+                  {
+                    "id": "bookworm",
+                    "archive_type": "deb",
+                    "distro": "bookworm",
+                    "components": "main non-free contrib",
+                    "baseurl": "http://deb.debian.org/debian/"
+                  }
+                ],
+                "packages": [
+                  "adduser",
+                  "apt",
+                  "base-files",
+                  "base-passwd",
+                  "bash",
+                  "bsdutils",
+                  "coreutils",
+                  "dash",
+                  "debconf",
+                  "debian-archive-keyring",
+                  "debianutils",
+                  "diffutils",
+                  "dpkg",
+                  "e2fsprogs",
+                  "findutils",
+                  "gcc-10-base",
+                  "gcc-9-base",
+                  "gpgv",
+                  "grep",
+                  "gzip",
+                  "grub2",
+                  "grub-efi",
+                  "hostname",
+                  "init-system-helpers",
+                  "libacl1",
+                  "libapt-pkg6.0",
+                  "libattr1",
+                  "libaudit-common",
+                  "libaudit1",
+                  "libblkid1",
+                  "libbz2-1.0",
+                  "libc-bin",
+                  "libc6",
+                  "libcap-ng0",
+                  "libcom-err2",
+                  "libcrypt1",
+                  "libdb5.3",
+                  "libdebconfclient0",
+                  "libext2fs2",
+                  "libffi7",
+                  "libgcc-s1",
+                  "libgcrypt20",
+                  "libgmp10",
+                  "libgnutls30",
+                  "libgpg-error0",
+                  "libgssapi-krb5-2",
+                  "libhogweed6",
+                  "libidn2-0",
+                  "libk5crypto3",
+                  "libkeyutils1",
+                  "libkrb5-3",
+                  "libkrb5support0",
+                  "liblz4-1",
+                  "liblzma5",
+                  "libmount1",
+                  "libnettle8",
+                  "libnsl2",
+                  "libp11-kit0",
+                  "libpam-modules",
+                  "libpam-modules-bin",
+                  "libpam-runtime",
+                  "libpam0g",
+                  "libpcre2-8-0",
+                  "libpcre3",
+                  "libseccomp2",
+                  "libselinux1",
+                  "libsemanage-common",
+                  "libsemanage1",
+                  "libsepol1",
+                  "libsmartcols1",
+                  "libss2",
+                  "libssl1.1",
+                  "libstdc++6",
+                  "libsystemd0",
+                  "libtasn1-6",
+                  "libtinfo6",
+                  "libtirpc-common",
+                  "libtirpc3",
+                  "libudev1",
+                  "libunistring2",
+                  "libuuid1",
+                  "libxxhash0",
+                  "libzstd1",
+                  "login",
+                  "logsave",
+                  "lsb-base",
+                  "mawk",
+                  "mount",
+                  "ncurses-base",
+                  "ncurses-bin",
+                  "passwd",
+                  "perl-base",
+                  "sed",
+                  "sysvinit-utils",
+                  "tar",
+                  "tzdata",
+                  "util-linux",
+                  "zlib1g",
+                  "apt-utils",
+                  "cpio",
+                  "cron",
+                  "debconf-i18n",
+                  "dmidecode",
+                  "dmsetup",
+                  "fdisk",
+                  "ifupdown",
+                  "init",
+                  "iproute2",
+                  "iputils-ping",
+                  "isc-dhcp-client",
+                  "isc-dhcp-common",
+                  "kmod",
+                  "less",
+                  "libapparmor1",
+                  "libargon2-1",
+                  "libbpf0",
+                  "libbsd0",
+                  "libcap2",
+                  "libcap2-bin",
+                  "libcryptsetup12",
+                  "libdevmapper1.02.1",
+                  "libdns-export1110",
+                  "libedit2",
+                  "libelf1",
+                  "libestr0",
+                  "libfastjson4",
+                  "libfdisk1",
+                  "libip4tc2",
+                  "libisc-export1105",
+                  "libjansson4",
+                  "libjson-c5",
+                  "libkmod2",
+                  "liblocale-gettext-perl",
+                  "liblognorm5",
+                  "libmd0",
+                  "libmnl0",
+                  "libncurses6",
+                  "libncursesw6",
+                  "libnewt0.52",
+                  "libnftables1",
+                  "libnftnl11",
+                  "libpopt0",
+                  "libprocps8",
+                  "libreadline8",
+                  "libslang2",
+                  "libtext-charwidth-perl",
+                  "libtext-iconv-perl",
+                  "libtext-wrapi18n-perl",
+                  "libxtables12",
+                  "linux-image-amd64",
+                  "logrotate",
+                  "nano",
+                  "netbase",
+                  "nftables",
+                  "procps",
+                  "readline-common",
+                  "rsyslog",
+                  "sensible-utils",
+                  "systemd",
+                  "systemd-sysv",
+                  "tasksel",
+                  "tasksel-data",
+                  "udev",
+                  "usrmerge",
+                  "vim-common",
+                  "vim-tiny",
+                  "whiptail",
+                  "xxd"
+                ]
+              }
+            }
+          }
+        },
+        {
+          "type": "org.osbuild.users",
+          "options": {
+            "users": {
+              "admin": {
+                "password": "$6$eKr2I2pjEhN5JPn/$gKWB8OVA4Tz7hfuUMCqwJ2EtTv4WywtqlqTDNWfENQ1E5/Kfii.1skPCkOCR6pEEQRPud8Lz70RvNRWpek6iL/",
+                "home": "/home/admin"
+              }
+            }
+          }
+        },
+        {
+          "type": "org.osbuild.fstab",
+          "options": {
+            "filesystems": [
+              {
+                "uuid": "0194fdc2-fa2f-4cc0-81d3-ff12045b73c8",
+                "vfs_type": "ext4",
+                "path": "/",
+                "freq": 1,
+                "passno": 1,
+                "options": "defaults"
+              },
+              {
+                "uuid": "7B77-95E7",
+                "vfs_type": "vfat",
+                "path": "/boot/efi",
+                "options": "defaults,uid=0,gid=0,umask=077,shortname=winnt",
+                "passno": 2
+              }
+            ]
+          }
+        },
+        {
+          "type": "org.osbuild.grub2",
+          "options": {
+            "root_fs_uuid": "0194fdc2-fa2f-4cc0-81d3-ff12045b73c8",
+            "kernel_opts": "console=tty0 console=ttyS0,115200n8 no_timer_check net.ifnames=0 crashkernel=auto",
+            "legacy": "i386-pc",
+            "uefi": {
+              "vendor": "debian"
+            }
+          }
+        },
+        {
+          "type": "org.osbuild.mkinitramfs"
+        }
+      ]
+    },
+    {
+      "name": "root-tar",
+      "build": "name:build",
+      "stages": [
+        {
+          "type": "org.osbuild.tar",
+          "options": {
+            "filename": "debian.tar"
+          },
+          "inputs": {
+            "tree": {
+              "type": "org.osbuild.tree",
+              "origin": "org.osbuild.pipeline",
+              "references": [
+                "name:os"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "image",
+      "build": "name:build",
+      "stages": [
+        {
+          "type": "org.osbuild.truncate",
+          "options": {
+            "filename": "disk.img",
+            "size": "10737418240"
+          }
+        },
+        {
+          "type": "org.osbuild.sfdisk",
+          "options": {
+            "label": "gpt",
+            "uuid": "D209C89E-EA5E-4FBD-B161-B461CCE297E0",
+            "partitions": [
+              {
+                "bootable": true,
+                "size": 2048,
+                "start": 2048,
+                "type": "21686148-6449-6E6F-744E-656564454649",
+                "uuid": "FAC7F1FB-3E8D-4137-A512-961DE09A5549"
+              },
+              {
+                "size": 204800,
+                "start": 4096,
+                "type": "C12A7328-F81F-11D2-BA4B-00A0C93EC93B",
+                "uuid": "68B2905B-DF3E-4FB3-80FA-49D1E773AA33"
+              },
+              {
+                "size": 20762524,
+                "start": 208896,
+                "type": "0FC63DAF-8483-4772-8E79-3D69D8477DE4",
+                "uuid": "6264D520-3FB9-423F-8AB8-7A0A8E3D3562"
+              }
+            ]
+          },
+          "devices": {
+            "device": {
+              "type": "org.osbuild.loopback",
+              "options": {
+                "filename": "disk.img"
+              }
+            }
+          }
+        },
+        {
+          "type": "org.osbuild.mkfs.fat",
+          "options": {
+            "volid": "7B7795E7"
+          },
+          "devices": {
+            "device": {
+              "type": "org.osbuild.loopback",
+              "options": {
+                "filename": "disk.img",
+                "start": 4096,
+                "size": 204800
+              }
+            }
+          }
+        },
+        {
+          "type": "org.osbuild.mkfs.ext4",
+          "options": {
+            "uuid": "0194fdc2-fa2f-4cc0-81d3-ff12045b73c8",
+            "label": "root"
+          },
+          "devices": {
+            "device": {
+              "type": "org.osbuild.loopback",
+              "options": {
+                "filename": "disk.img",
+                "start": 208896,
+                "size": 20762524
+              }
+            }
+          }
+        },
+        {
+          "type": "org.osbuild.copy",
+          "inputs": {
+            "root-tree": {
+              "type": "org.osbuild.tree",
+              "origin": "org.osbuild.pipeline",
+              "references": [
+                "name:os"
+              ]
+            }
+          },
+          "options": {
+            "paths": [
+              {
+                "from": "input://root-tree/",
+                "to": "mount://root/"
+              }
+            ]
+          },
+          "devices": {
+            "boot": {
+              "type": "org.osbuild.loopback",
+              "options": {
+                "filename": "disk.img",
+                "start": 4096,
+                "size": 204800
+              }
+            },
+            "root": {
+              "type": "org.osbuild.loopback",
+              "options": {
+                "filename": "disk.img",
+                "start": 208896,
+                "size": 20762524
+              }
+            }
+          },
+          "mounts": [
+            {
+              "name": "root",
+              "type": "org.osbuild.ext4",
+              "source": "root",
+              "target": "/"
+            },
+            {
+              "name": "boot",
+              "type": "org.osbuild.fat",
+              "source": "boot",
+              "target": "/boot/efi"
+            }
+          ]
+        },
+        {
+          "type": "org.osbuild.grub2.inst",
+          "options": {
+            "filename": "disk.img",
+            "platform": "i386-pc",
+            "location": 2048,
+            "core": {
+              "type": "mkimage",
+              "partlabel": "gpt",
+              "filesystem": "ext4",
+              "binary": "grub-mkimage"
+            },
+            "prefix": {
+              "type": "partition",
+              "partlabel": "gpt",
+              "number": 2,
+              "path": "/boot/grub2"
+            }
+          }
+        }
+      ]
+    }
+  ]
+}
