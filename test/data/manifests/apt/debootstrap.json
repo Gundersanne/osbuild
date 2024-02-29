@@ -12,7 +12,7 @@
               "type": "org.osbuild.files",
               "origin": "org.osbuild.source",
               "references": {
-                "sha256:fb41cb7def9dc17e1f4e03f98011d34fbd65320686bfc37df170e898cb8659c8": {}
+                "sha256:d54a0466540273825c372d1c12204dbb86da901952da8d73b48b80b8e19aa520": {}
               }
             }
           },
@@ -24,6 +24,13 @@
     }
   ],
   "sources": {
+    "org.osbuild.debootstrap": {
+      "items": {
+        "sha256:d54a0466540273825c372d1c12204dbb86da901952da8d73b48b80b8e19aa520": {
+          "suite": "stable"
+        }
+      }
+    },
     "org.osbuild.curl": {
       "items": {
         "sha256:fb41cb7def9dc17e1f4e03f98011d34fbd65320686bfc37df170e898cb8659c8": "http://localhost:8000/ball.tar"
